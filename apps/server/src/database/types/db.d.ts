@@ -428,6 +428,7 @@ export interface UserMfa {
 }
 
 export interface Users {
+  authSource: Generated<string>;
   avatarUrl: string | null;
   createdAt: Generated<Timestamp>;
   deactivatedAt: Timestamp | null;

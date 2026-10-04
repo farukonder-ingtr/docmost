@@ -3,6 +3,7 @@ import {
   IChangePassword,
   ICollabToken,
   IForgotPassword,
+  ILdapLogin,
   ILogin,
   ILoginResponse,
   IPasswordReset,
@@ -14,6 +15,11 @@ import { IWorkspace } from "@/features/workspace/types/workspace.types.ts";
 export async function login(data: ILogin): Promise<ILoginResponse> {
   const response = await api.post<ILoginResponse>("/auth/login", data);
   return response.data;
+}
+
+// Queries our own authz service (LDAP bind + group resolution), not Docmost's password store.
+export async function ldapLogin(data: ILdapLogin): Promise<void> {
+  await api.post<void>("/auth/ldap-login", data);
 }
 
 export async function logout(): Promise<void> {

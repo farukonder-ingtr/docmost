@@ -54,27 +54,7 @@ homeDirectory: /home/ayse
 loginShell: /bin/bash
 userPassword: ayse123
 
-dn: cn=DOCMOST-ADMIN,ou=Groups,dc=placeholder,dc=test
+dn: cn=INGWIKI_SPACE1,ou=Groups,dc=placeholder,dc=test
 objectClass: groupOfNames
-cn: DOCMOST-ADMIN
-member: uid=faruk,ou=Users,dc=placeholder,dc=test
-
-dn: cn=DOCMOST-IT,ou=Groups,dc=placeholder,dc=test
-objectClass: groupOfNames
-cn: DOCMOST-IT
-member: uid=faruk,ou=Users,dc=placeholder,dc=test
-
-dn: cn=DOCMOST-ARCHITECT,ou=Groups,dc=placeholder,dc=test
-objectClass: groupOfNames
-cn: DOCMOST-ARCHITECT
-member: uid=faruk,ou=Users,dc=placeholder,dc=test
-
-dn: cn=DOCMOST-HR,ou=Groups,dc=placeholder,dc=test
-objectClass: groupOfNames
-cn: DOCMOST-HR
+cn: INGWIKI_SPACE1
 member: uid=ali,ou=Users,dc=placeholder,dc=test
-
-dn: cn=DOCMOST-FINANCE,ou=Groups,dc=placeholder,dc=test
-objectClass: groupOfNames
-cn: DOCMOST-FINANCE
-member: uid=ayse,ou=Users,dc=placeholder,dc=test

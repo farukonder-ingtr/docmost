@@ -1,25 +1,17 @@
 import {
   Injectable,
   InternalServerErrorException,
-  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { EnvironmentService } from '../environment/environment.service';
-import {
-  LdapAuthenticatedUser,
-  LdapPermission,
-  LdapResourceType,
-} from './ldap-authz.types';
+import { LdapAuthenticatedUser } from './ldap-authz.types';
 
 /**
- * Client for the Spring Boot LDAP authorization service (see
- * docmost-ldap-page-authorization.md). Fails closed: any network/response
- * error is treated as "not allowed", never as "allowed".
+ * Client for the Spring Boot LDAP authentication service (see
+ * docmost-ldap-page-authorization.md).
  */
 @Injectable()
 export class LdapAuthzService {
-  private readonly logger = new Logger(LdapAuthzService.name);
-
   constructor(private readonly environmentService: EnvironmentService) {}
 
   isEnabled(): boolean {
@@ -46,39 +38,6 @@ export class LdapAuthzService {
     }
 
     return response.json() as Promise<LdapAuthenticatedUser>;
-  }
-
-  /**
-   * Returns true only if the authz service explicitly allowed the request.
-   * Any failure (timeout, 5xx, bad secret, etc.) returns false.
-   */
-  async isAllowed(
-    username: string,
-    resourceType: LdapResourceType,
-    resourceId: string,
-    permission: LdapPermission,
-  ): Promise<boolean> {
-    try {
-      const response = await this.request(
-        '/internal/authorize',
-        { resourceType, resourceId, permission },
-        { 'X-Docmost-User': username },
-      );
-
-      if (!response.ok) {
-        this.logger.warn(
-          `authz service returned ${response.status} for ${resourceType}:${resourceId}`,
-        );
-        return false;
-      }
-
-      const body = await response.json();
-      return body?.allowed === true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`authz service call failed, denying access: ${message}`);
-      return false;
-    }
   }
 
   private async request(

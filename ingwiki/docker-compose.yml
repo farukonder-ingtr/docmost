@@ -57,8 +57,6 @@ services:
     restart: unless-stopped
 
     environment:
-      AUTHZ_DB_PASSWORD: ${AUTHZ_DB_PASSWORD}
-
       LDAP_URL: ${LDAP_URL}
       LDAP_BASE_DN: ${LDAP_BASE_DN}
 
@@ -70,15 +68,12 @@ services:
 
       LDAP_GROUP_SEARCH_BASE: ${LDAP_GROUP_SEARCH_BASE}
       LDAP_GROUP_SEARCH_FILTER: ${LDAP_GROUP_SEARCH_FILTER}
-      LDAP_ADMIN_GROUP: ${LDAP_ADMIN_GROUP:-DOCMOST-ADMIN}
 
       DOCMOST_INTERNAL_SECRET: ${DOCMOST_INTERNAL_SECRET}
 
       JWT_SECRET: ${JWT_SECRET}
 
     depends_on:
-      authz-postgres:
-        condition: service_healthy
       redis:
         condition: service_started
       ldap:
@@ -102,29 +97,6 @@ services:
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U docmost -d docmost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    networks:
-      - backend
-
-
-  authz-postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-
-    environment:
-      POSTGRES_DB: docmost_authz
-      POSTGRES_USER: docmost
-      POSTGRES_PASSWORD: ${AUTHZ_DB_PASSWORD}
-
-    volumes:
-      - authz-postgres:/var/lib/postgresql/data
-      - ./authz/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U docmost -d docmost_authz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -183,7 +155,6 @@ services:
 
 volumes:
   docmost-postgres:
-  authz-postgres:
   redis:
 
 

@@ -44,6 +44,7 @@ import { EnvironmentService } from '../../../integrations/environment/environmen
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { EventName } from '../../../common/events/event.contants';
 import { LdapAuthzService } from '../../../integrations/ldap-authz/ldap-authz.service';
+import { LdapSpaceProvisionService } from '../../../integrations/ldap-authz/ldap-space-provision.service';
 
 @Injectable()
 export class AuthService {
@@ -61,6 +62,7 @@ export class AuthService {
     private environmentService: EnvironmentService,
     private eventEmitter: EventEmitter2,
     private ldapAuthzService: LdapAuthzService,
+    private ldapSpaceProvisionService: LdapSpaceProvisionService,
     @InjectKysely() private readonly db: KyselyDB,
     @Inject(AUDIT_SERVICE) private readonly auditService: IAuditService,
   ) {}
@@ -90,6 +92,12 @@ export class AuthService {
       throw new UnauthorizedException('Email or password does not match');
     }
 
+    await this.ldapSpaceProvisionService.syncSpaceMemberships(
+      user.id,
+      workspaceId,
+      ldapUser.groups,
+    );
+
     user.lastLoginAt = new Date();
     await this.userRepo.updateLastLogin(user.id, workspaceId);
 
@@ -110,6 +118,11 @@ export class AuthService {
 
     const errorMessage = 'Email or password does not match';
     if (!user || isUserDisabled(user)) {
+      throw new UnauthorizedException(errorMessage);
+    }
+
+    // ldap/sso-provisioned users have no local password to compare against
+    if (!user.password) {
       throw new UnauthorizedException(errorMessage);
     }
 
@@ -168,6 +181,12 @@ export class AuthService {
 
     if (!user || isUserDisabled(user)) {
       throw new NotFoundException('User not found');
+    }
+
+    if (!user.password) {
+      throw new BadRequestException(
+        'Password change is not available for LDAP/SSO accounts',
+      );
     }
 
     const comparePasswords = await comparePasswordHash(

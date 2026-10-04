@@ -3,16 +3,6 @@ server:
 
 spring:
 
-  datasource:
-    url: ${AUTHZ_DATABASE_URL:jdbc:postgresql://authz-postgres:5432/docmost_authz}
-    username: ${AUTHZ_DB_USER:docmost}
-    password: ${AUTHZ_DB_PASSWORD}
-
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    open-in-view: false
-
   data:
     redis:
       host: ${REDIS_HOST:redis}
@@ -34,7 +24,6 @@ docmost:
     user-search-filter: ${LDAP_USER_SEARCH_FILTER}
     group-search-base: ${LDAP_GROUP_SEARCH_BASE}
     group-search-filter: ${LDAP_GROUP_SEARCH_FILTER}
-    admin-group: ${LDAP_ADMIN_GROUP:DOCMOST-ADMIN}
     groups-cache-ttl-seconds: ${LDAP_GROUPS_CACHE_TTL_SECONDS:60}
 
 logging:

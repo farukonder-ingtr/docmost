@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   forgotPassword,
+  ldapLogin,
   login,
   logout,
   passwordReset,
@@ -12,6 +13,7 @@ import { useAtom } from "jotai";
 import { currentUserAtom } from "@/features/user/atoms/current-user-atom";
 import {
   IForgotPassword,
+  ILdapLogin,
   ILogin,
   IPasswordReset,
   ISetupWorkspace,
@@ -64,6 +66,22 @@ export default function useAuth() {
 
       notifications.show({
         message,
+        color: "red",
+      });
+    }
+  };
+
+  const handleLdapSignIn = async (data: ILdapLogin) => {
+    setIsLoading(true);
+
+    try {
+      await ldapLogin(data);
+      setIsLoading(false);
+      navigate(getPostLoginRedirect());
+    } catch (err) {
+      setIsLoading(false);
+      notifications.show({
+        message: err.response?.data?.message || t("Invalid LDAP credentials"),
         color: "red",
       });
     }
@@ -207,6 +225,7 @@ export default function useAuth() {
 
   return {
     signIn: handleSignIn,
+    ldapSignIn: handleLdapSignIn,
     invitationSignup: handleInvitationSignUp,
     setupWorkspace: handleSetupWorkspace,
     forgotPassword: handleForgotPassword,

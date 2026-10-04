@@ -36,6 +36,7 @@ export class UserRepo {
     'updatedAt',
     'deletedAt',
     'hasGeneratedPassword',
+    'authSource',
   ];
 
   async findById(
@@ -118,7 +119,10 @@ export class UserRepo {
       name:
         insertableUser.name || insertableUser.email.split('@')[0].toLowerCase(),
       email: insertableUser.email.toLowerCase(),
-      password: await hashPassword(insertableUser.password),
+      // ldap/sso-provisioned users have no local password to hash
+      password: insertableUser.password
+        ? await hashPassword(insertableUser.password)
+        : null,
       locale: 'en-US',
       role: insertableUser?.role,
       lastLoginAt: new Date(),

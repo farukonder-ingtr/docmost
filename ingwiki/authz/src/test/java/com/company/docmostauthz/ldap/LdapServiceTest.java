@@ -108,17 +108,6 @@ class LdapServiceTest {
     }
 
     @Test
-    void findUserByEmailSearchesByMailAttribute() throws Exception {
-        stubUserSearch("(mail=faruk@placeholder.test)", "faruk", "faruk@placeholder.test", "Faruk Yilmaz");
-        stubGroupSearch("DOCMOST-ADMIN");
-
-        LdapUser user = ldapService.findUserByEmail("faruk@placeholder.test");
-
-        assertThat(user.email()).isEqualTo("faruk@placeholder.test");
-        assertThat(user.groups()).containsExactly("DOCMOST-ADMIN");
-    }
-
-    @Test
     void groupSearchFilterEscapesSpecialCharactersInUserDn() throws Exception {
         String dnWithParens = "cn=weird (name),ou=Users,dc=placeholder,dc=test";
 

@@ -6,8 +6,8 @@
 
 Docmost OSS fork'u (`docmost/`) değiştirilmeden bırakılmadı; aşağıdaki iki parça eklendi:
 
-1. **`authz/`** — bağımsız bir **Spring Boot 4.1.1 / Java 25** servisi: LDAP bind doğrulama, grup çözümleme (Redis önbellekli), kaynak/politika (resource/policy) veritabanı, yetkilendirme kararı, yönetim API'si.
-2. **Docmost sunucusunda (`docmost/apps/server`) hedefli değişiklikler**: `POST /api/auth/ldap-login` endpoint'i, `LdapAuthzService` HTTP istemcisi, ve mevcut tek yetkilendirme çekirdeği olan `PageAccessService` içine LDAP kontrolünün eklenmesi (bkz. §4).
+1. **`authz/`** — bağımsız, **veritabanısız** bir **Spring Boot 4.1.1 / Java 25** servisi: yalnızca LDAP bind doğrulama + grup çözümleme (Redis önbellekli). ~~Kaynak/politika (resource/policy) veritabanı, sayfa-seviyesi yetkilendirme kararı, yönetim API'si~~ **kaldırıldı** (bkz. §9 B12) — bu servis artık yalnızca "bu kullanıcı/parola LDAP'ta geçerli mi, grupları ne?" sorusuna cevap verir, "bu kullanıcı şu sayfayı görebilir mi?" sorusuna karışmaz.
+2. **Docmost sunucusunda (`docmost/apps/server`) hedefli değişiklikler**: `POST /api/auth/ldap-login` endpoint'i, `LdapAuthzService` HTTP istemcisi (yalnızca `authenticate()`), ve giriş anında LDAP grubuna göre otomatik **space** üyeliği (bkz. §9.2 B11). Sayfa/kaynak erişimi tamamen Docmost'un kendi native `SpaceRole`/`PagePermission` sistemine bırakılmıştır — LDAP grupları sayfa bazında ayrıca kontrol edilmez.
 
 Ayrıca `docker-compose.yml`, `nginx/`, `.env.example` ve test/geliştirme amaçlı bir OpenLDAP dizini (`test/ldap/`) repo köküne eklendi. Sistem hem **canlı olarak** (gerçek Docker Compose yığını + headless browser ile) hem de **otomatik JUnit testleriyle** (§6) doğrulanmıştır.
 
@@ -20,17 +20,15 @@ graph TB
 
     Docmost -->|SQL| DocmostPG[(PostgreSQL<br/>docmost db)]
     Docmost -->|cache/queue| Redis[(Redis)]
-    Docmost -->|"POST /internal/authenticate<br/>POST /internal/authorize<br/>+ X-Docmost-Internal-Secret"| AuthZ[authz container<br/>Spring Boot 4.1.1]
+    Docmost -->|"POST /internal/authenticate<br/>+ X-Docmost-Internal-Secret"| AuthZ[authz container<br/>Spring Boot 4.1.1<br/>DB YOK — bkz. §9 B12]
 
     AuthZ -->|LDAP bind + search| LDAP[(LDAP/AD<br/>test: osixia/openldap)]
-    AuthZ -->|SQL| AuthzPG[(PostgreSQL<br/>docmost_authz db<br/>resource/policy)]
     AuthZ -->|grup önbelleği, TTL| Redis
 
     subgraph internal["Docker network: backend (internal:true)"]
         Docmost
         AuthZ
         DocmostPG
-        AuthzPG
         Redis
         LDAP
     end
@@ -42,31 +40,13 @@ graph TB
 
 Dışarıya yalnızca Nginx'in 443 portu açıktır; Postgres'ler, Redis, `authz` ve LDAP yalnızca `backend` (internal) ağındadır — bkz. requirements S3–S5.
 
-## 3. Veri Modeli — Yetkilendirme Servisi (`docmost_authz` DB)
+## 3. ~~Veri Modeli — Yetkilendirme Servisi~~ (KALDIRILDI, bkz. §9 B12)
 
-```mermaid
-erDiagram
-    RESOURCE ||--o{ POLICY : "sahiptir"
-    RESOURCE {
-        uuid id PK
-        varchar resource_type "PAGE | SPACE"
-        varchar docmost_id "Docmost page/space id"
-        varchar parent_docmost_id "hiyerarşi için"
-        varchar name
-    }
-    POLICY {
-        uuid id PK
-        uuid resource_id FK
-        varchar ldap_group
-        varchar permission "VIEW | EDIT | ADMIN"
-    }
-```
-
-Bu şema, `docmost` ana veritabanından **tamamen ayrıdır** — authz servisi Docmost'un kendi şemasına hiç dokunmaz, yalnızca `docmostId` üzerinden referans tutar.
+> Bu bölüm, `authz` servisinin eskiden sahip olduğu `docmost_authz` Postgres veritabanını (resource/policy şeması) anlatıyordu. Kullanıcı talebiyle bu veritabanı **ve** onu kullanan tüm sayfa-seviyesi yetkilendirme mekanizması (DOCMOST-ADMIN bypass + LDAP grup politikaları) tamamen kaldırıldı — bkz. §9 B12. `authz` servisi artık **hiçbir veritabanına bağlı değildir**; yalnızca LDAP'a bağlanır.
 
 ## 4. Docmost Tarafındaki Entegrasyon Noktası
 
-OSS mimarisinde (`01-docmost-oss-architecture.md`, §6) tüm page/attachment/comment erişim kontrolü `PageAccessService` üzerinden geçiyordu. Bu proje, LDAP kontrolünü **yeni bir paralel sistem olarak değil**, bu mevcut tek çekirdeğin içine ek bir adım olarak ekledi:
+OSS mimarisinde (`01-docmost-oss-architecture.md`, §6) tüm page/attachment/comment erişim kontrolü `PageAccessService` üzerinden geçiyordu. **B12'den önce** bu proje, LDAP kontrolünü bu mevcut tek çekirdeğin içine ek bir adım (`LdapAuthzService.isAllowed()` → authz'nin `/internal/authorize`'ı) olarak eklemişti. **B12 ile bu adım tamamen kaldırıldı** — `PageAccessService` artık LDAP'tan tamamen habersizdir:
 
 ```mermaid
 graph LR
@@ -74,14 +54,10 @@ graph LR
     L1 -->|Hayır| D1[403]
     L1 -->|Evet| L2{page_permission<br/>kısıtlaması karşılanıyor mu?}
     L2 -->|Hayır| D2[403]
-    L2 -->|Evet| L3{"LdapAuthzService.isAllowed()<br/>(sadece AUTHZ_URL tanımlıysa)"}
-    L3 -->|Hayır| D3[403 — fail-closed]
-    L3 -->|Evet| OK[İzin verildi]
+    L2 -->|Evet| OK[İzin verildi]
 ```
 
-Yani nihai karar **AND** mantığıyla çalışır: Docmost'un kendi space/page izni **ve** LDAP politikası aynı anda izin vermelidir (FR-6 ile uyumlu — LDAP katmanı var olan izni genişletmez, yalnızca daraltabilir).
-
-`LdapAuthzService` (`integrations/ldap-authz/`) her çağrıda hata/timeout durumunda `false` döner (fail-closed, FR-15/S11).
+LDAP'ın erişim kontrolüne tek katkısı artık **giriş anında** olur: kullanıcı hangi LDAP gruplarındaysa, ona karşılık gelen `INGWIKI-<AD>` space'ine otomatik üye yapılır (§9.2 B11); üyelik eklendikten sonra o kullanıcı için tamamen native `SpaceRole`/`PagePermission` sistemi geçerlidir. Sürekli/istek-bazlı bir LDAP-grup kontrolü artık **yoktur**.
 
 ## 5. Uçtan Uca Akış Diyagramları (canlı olarak doğrulanmış)
 
@@ -89,7 +65,7 @@ Yani nihai karar **AND** mantığıyla çalışır: Docmost'un kendi space/page 
 
 ```mermaid
 sequenceDiagram
-    participant B as Browser
+    participant B as HTTP Client (curl/Postman — Docmost web UI DEĞİL, bkz. L7)
     participant D as Docmost (AuthController)
     participant A as authz (/internal/authenticate)
     participant L as LDAP
@@ -110,6 +86,8 @@ sequenceDiagram
 ```
 
 **Doğrulandı:** `faruk`/`ali`/`ayse` kullanıcıları seed LDAP'tan gerçek bind ile doğrulandı, ilk girişte otomatik workspace üyesi olarak oluşturuldu, `GET/POST /api/users/me` ile oturumun geçerli olduğu teyit edildi. Yanlış parola ve var olmayan kullanıcı adı için tutarlı biçimde `401` alındı (FR-4).
+
+> ⚠️ **Önemli:** Bu akış yalnızca doğrudan API çağrısıyla (`curl`) doğrulanmıştır. Docmost web login formu bu endpoint'i çağırmaz — bkz. §8 L7.
 
 ### 5.2 Sayfa Yetkilendirme (FR-5 — FR-10)
 
@@ -136,34 +114,15 @@ sequenceDiagram
     end
 ```
 
-**Doğrulandı (gerçek test sonuçları):** `Finance Only Page` adlı sayfaya yalnızca `DOCMOST-FINANCE` grubu için `VIEW` politikası tanımlandı:
+### 5.2 ~~Sayfa Yetkilendirme~~ (KALDIRILDI, bkz. §9 B12)
 
-| Kullanıcı | LDAP Grupları | Beklenen | Gerçekleşen |
-|---|---|---|---|
-| `faruk` | `DOCMOST-ADMIN`, `DOCMOST-IT`, `DOCMOST-ARCHITECT` | İzinli (admin bypass) | ✅ 200 |
-| `ali` | `DOCMOST-HR` | Reddedilir | ✅ 403 |
-| `ayse` | `DOCMOST-FINANCE` | İzinli (politika eşleşmesi) | ✅ 200 |
-| local `admin` (LDAP'ta yok) | — | Reddedilir (fail-closed) | ✅ 403 |
+> Bu bölüm, `/internal/authorize` endpoint'i ve DOCMOST-ADMIN bypass + LDAP grup politikası mekanizmasını anlatıyordu (aşağıdaki test tablosu dahil). Kullanıcı talebiyle bu mekanizma tamamen kaldırıldı; sayfa erişimi artık yalnızca Docmost'un kendi `SpaceRole`/`page_permission` sistemine tabidir (bkz. §4, §9 B12). Tarihsel kayıt olarak: o dönemde `Finance Only Page` adlı sayfaya yalnızca `DOCMOST-FINANCE` grubu için `VIEW` politikası tanımlanmış, `faruk` (DOCMOST-ADMIN bypass), `ayse` (politika eşleşmesi) izinli, `ali` (DOCMOST-HR) ve LDAP karşılığı olmayan yerel `admin` reddedilmişti.
 
-Son satır, requirements §9 kapsamında açıkça test edilmemiş ama fail-closed ilkesinin (S11) doğal bir sonucu olan önemli bir **operasyonel uyarıyı** ortaya çıkardı: bkz. §8.
+### 5.3 ~~Yönetim API'si ile Politika Tanımlama~~ (KALDIRILDI, bkz. §9 B12)
 
-### 5.3 Yönetim API'si ile Politika Tanımlama (FR-11, FR-12, FR-13)
+> `/admin/resources` ve `/admin/resources/{docmostId}/policies` endpoint'leri, onları destekleyen `ResourceAdminController`/`PolicyRepository`/`ResourceRepository` ile birlikte tamamen kaldırıldı. Sayfa/space erişim yönetimi artık yalnızca Docmost'un kendi UI'ı üzerinden (space üyeliği, page permission) yapılır — ayrı bir yönetim API'sine gerek kalmadı.
 
-```mermaid
-sequenceDiagram
-    participant Op as Yetki Yöneticisi
-    participant A as authz (/admin/resources)
-
-    Op->>A: POST /admin/resources {resourceType:PAGE, docmostId, name}<br/>+ X-Docmost-Internal-Secret
-    A-->>Op: 200 {resource}
-    Op->>A: POST /admin/resources/{docmostId}/policies {ldapGroup, permission}
-    A-->>Op: 200 {policy}
-    Note over A: Secret header olmadan istek → InternalSecretFilter 403
-```
-
-**Doğrulandı:** Secret olmadan `/admin/**` ve `/internal/**` çağrıları reddedilir; doğru secret ile kaynak + politika başarıyla oluşturuldu (bkz. §5.2 test tablosu, bu politika kullanılarak üretildi).
-
-### 5.4 Grup Değişikliği / Önbellek Süresi Dolumu (FR-5 G5, FR-14, NFR-1)
+### 5.4 Grup Değişikliği / Önbellek Süresi Dolumu (FR-5 G5, FR-14, NFR-1) — kapsamı B12 ile daraltıldı
 
 ```mermaid
 sequenceDiagram
@@ -172,34 +131,28 @@ sequenceDiagram
     participant A as authz (Redis cache)
     participant D as Docmost
 
-    Admin->>L: Kullanıcıyı DOCMOST-ARCHITECT grubundan çıkar
-    Note over A: Önbellekteki grup listesi hâlâ eski<br/>(TTL dolana kadar, varsayılan 60sn)
-    D->>A: authorize(user, page, EDIT)
-    A-->>D: allowed=true (eski/önbellekli grup bilgisiyle)
-    Note over A: TTL dolduktan sonra...
-    D->>A: authorize(user, page, EDIT)
-    A->>L: findUserByEmail (önbellek miss → LDAP'a gider)
-    L-->>A: güncel gruplar (DOCMOST-ARCHITECT yok)
-    A-->>D: allowed=false
+    Admin->>L: Kullanıcıyı INGWIKI_SPACE1 grubuna ekle/çıkar
+    Note over A: Önbellekteki grup listesi hemen güncellenmez<br/>(TTL dolana kadar, varsayılan 60sn)
+    D->>A: /internal/authenticate (bir sonraki LDAP girişinde)
+    A->>L: findUser (önbellek miss ise LDAP'a gider)
+    L-->>A: güncel gruplar
+    A-->>D: {groups: [...]}
+    D->>D: LdapSpaceProvisionService.syncSpaceMemberships()<br/>(yalnızca EKLER, grup çıkınca üyeliği geri almaz — §9.2)
 ```
 
-Bu senaryo kod/konfigürasyon olarak uygulanmıştır (`@Cacheable(..., key=...)`, TTL `LDAP_GROUPS_CACHE_TTL_SECONDS`); uçtan uca canlı AD grup değişikliğiyle ayrıca test edilmemiştir (test ortamında statik LDIF kullanıldı) — ancak §6'daki birim testleri, önbellek anahtarlama mantığının kendisini (farklı sorgu türleri için ayrı `@Cacheable` anahtarları) dolaylı olarak doğrular.
+**B12 sonrası önemli fark:** Bu senaryo artık yalnızca **B11'in giriş-anı space otomatik-üyelik mekanizmasını** etkiler, sürekli/istek-başına bir sayfa yetkilendirme kararını etkilemez (çünkü artık öyle bir karar yok). Yani bir kullanıcı LDAP grubundan çıkarılsa bile, zaten eklenmiş olduğu space üyeliği **geri alınmaz** (§9.2'de belgelenen bilinçli basitleştirme). Bu, kod/konfigürasyon olarak doğrulandı; uçtan uca canlı AD grup değişikliğiyle ayrıca test edilmemiştir.
 
 ## 6. Otomatik Test Paketi (JUnit)
 
-Canlı ortam testi (§5) tek doğrulama yöntemi değildir (NFR-4); `authz` servisi için gerçek bir LDAP/Docker ortamına ihtiyaç duymayan, mock tabanlı **30 JUnit 5 testi** yazılmış ve `cd authz && mvn test` ile çalıştırılmıştır.
+Canlı ortam testi (§5) tek doğrulama yöntemi değildir (NFR-4); `authz` servisi için gerçek bir LDAP/Docker ortamına ihtiyaç duymayan, mock tabanlı **13 JUnit 5 testi** yazılmış ve `cd authz && mvn clean test` ile çalıştırılmıştır (B12 öncesi 30 test vardı; `AuthorizationServiceTest`(8), `AuthorizationControllerTest`(1), `ResourceAdminControllerTest`(7) ve `LdapServiceTest`'teki `findUserByEmailSearchesByMailAttribute`(1) kaldırılan kodla birlikte silindi: 30-8-1-7-1=13).
 
 ```mermaid
 graph TB
     subgraph tests["authz/src/test/java/com/company/docmostauthz/"]
-        T1[authorization/AuthorizationServiceTest<br/>8 test]
-        T2[authorization/AuthorizationControllerTest<br/>1 test]
-        T3[ldap/LdapServiceTest<br/>7 test]
+        T3[ldap/LdapServiceTest<br/>6 test]
         T4[auth/LdapAuthenticationControllerTest<br/>3 test — MockMvc]
-        T5[admin/ResourceAdminControllerTest<br/>7 test]
         T6[config/InternalSecretFilterTest<br/>4 test]
     end
-    T1 -->|Mockito mock| Dep1[PolicyRepository / ResourceRepository / LdapService]
     T3 -->|Mockito mock + gerçek DirContextAdapter| Dep2[LdapTemplate]
     T4 -->|MockMvc standaloneSetup| Dep3[LdapService mock]
 ```
@@ -208,17 +161,15 @@ graph TB
 
 | Test sınıfı | Doğruladığı gereksinimler |
 |---|---|
-| `AuthorizationServiceTest` | FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-15 |
-| `AuthorizationControllerTest` | FR-5 (HTTP katmanı delegasyonu) |
 | `LdapServiceTest` | FR-1, FR-4 (bind başarı/başarısızlık, bilinmeyen kullanıcı), dizin sorgu filtrelerinin doğru kurulması |
 | `LdapAuthenticationControllerTest` | FR-2, FR-4 (401 eşlemesi, kullanıcı adı sızdırmama) |
-| `ResourceAdminControllerTest` | FR-11, FR-12 |
 | `InternalSecretFilterTest` | FR-13, S6, S7 |
+
+> ~~`AuthorizationServiceTest`, `AuthorizationControllerTest`, `ResourceAdminControllerTest`~~ B12 ile kaldırılan kodla birlikte silindi (FR-5…FR-13'ü kapsayan o testler artık geçerli değil, çünkü test ettikleri mekanizma mevcut değil).
 
 ### 6.2 Dikkat Çeken Test Tasarım Noktaları
 
 - `LdapServiceTest`, gerçek bir LDAP sunucusu olmadan `LdapTemplate`'i mock'lar; ancak **gerçek** bir `DirContextAdapter(BasicAttributes, LdapName)` nesnesi üretip bunu, mock'lanan `search(...)` çağrısının `ContextMapper`/`AttributesMapper` lambda'sına `thenAnswer` ile besler — böylece üretim kodundaki mapping mantığı sahte değil gerçek obje üzerinden çalıştırılmış olur.
-- `AuthorizationServiceTest`, `authorize()`'ın ebeveyn kaynağa **yalnızca** çocuk kaynak izin verdiğinde baktığını (deny erken döner, ebeveyne hiç bakmaz) doğrular; Mockito'nun sıkı-stub modu (strict stubbing) bu kısa-devre davranışını yanlış kurulmuş testlerde otomatik olarak yakalamıştır (bkz. §9, madde B6).
 - `LdapAuthenticationControllerTest`, Spring context'i tamamen ayağa kaldırmadan (`@SpringBootTest` değil), `MockMvcBuilders.standaloneSetup(controller)` ile yalnızca ilgili controller'ı ve onun **controller-local** `@ExceptionHandler` metodlarını test eder — hızlı ve izole bir entegrasyon testi.
 
 ## 7. Use Case'ler
@@ -230,43 +181,51 @@ graph TB
     actor3((LDAP/AD Yöneticisi))
 
     UC1[UC-1: LDAP ile giriş yap]
-    UC2[UC-2: Yetkili sayfayı görüntüle/düzenle]
-    UC3[UC-3: Yetkisiz sayfaya erişim reddedilir]
-    UC4[UC-4: Sayfaya LDAP grup politikası tanımla]
-    UC5[UC-5: DOCMOST-ADMIN olarak tüm sayfalara eriş]
-    UC6[UC-6: Grup üyeliği değişince erişimin güncellenmesi]
+    UC2["UC-2: Yetkili sayfayı görüntüle/düzenle (KALDIRILDI — B12)"]
+    UC3["UC-3: Yetkisiz sayfaya erişim reddedilir (KALDIRILDI — B12)"]
+    UC4["UC-4: Sayfaya LDAP grup politikası tanımla (KALDIRILDI — B12)"]
+    UC5["UC-5: DOCMOST-ADMIN olarak tüm sayfalara eriş (KALDIRILDI — B12)"]
+    UC6[UC-6: Grup üyeliği değişince space-üyeliği otomatik eklenmesi]
     UC7[UC-7: LDAP servisi kullanılamazken erişim talebi]
 
     actor1 --> UC1
-    actor1 --> UC2
-    actor1 --> UC3
-    actor1 --> UC5
-    actor2 --> UC4
     actor3 --> UC6
     UC1 -.include.-> UC7
-    UC2 -.include.-> UC7
 ```
 
 | Use Case | Aktör | Ön koşul | Akış (özet) | İlgili FR | Durum |
 |---|---|---|---|---|---|
 | UC-1 LDAP ile giriş | Son kullanıcı | LDAP'ta hesap var | §5.1 | FR-1..FR-4 | ✅ Canlı + birim testle doğrulandı |
-| UC-2 Yetkili sayfa erişimi | Son kullanıcı | Oturum açık, grup politika ile eşleşiyor | §5.2 | FR-5, FR-7, FR-10 | ✅ Canlı test edildi (ayse) |
-| UC-3 Yetkisiz erişim reddi | Son kullanıcı | Oturum açık, grup politika ile eşleşmiyor | §5.2 | FR-7 | ✅ Canlı test edildi (ali) |
-| UC-4 Politika tanımlama | Yetki yöneticisi | Internal secret biliniyor | §5.3 | FR-11, FR-12, FR-13 | ✅ Canlı + birim testle doğrulandı |
-| UC-5 Admin bypass | Son kullanıcı (`DOCMOST-ADMIN`) | — | §5.2 | FR-9, FR-10 | ✅ Canlı + birim testle doğrulandı (faruk) |
-| UC-6 Grup değişikliği sonrası güncelleme | LDAP yöneticisi | Önbellek TTL dolmuş | §5.4 | G5, FR-14 | ⚠️ Koddan doğrulandı, canlı AD senaryosu test edilmedi |
-| UC-7 LDAP/authz kullanılamıyor | Sistem | authz veya LDAP erişilemez | fail-closed deny | FR-15 / S11 | ✅ Tasarım + birim testle doğrulandı (`unresolvableLdapIdentityFailsClosed`) |
+| ~~UC-2 Yetkili sayfa erişimi~~ | — | — | — | — | ❌ **KALDIRILDI (B12)** — artık Docmost'un kendi `SpaceRole`/`page_permission`'ı geçerli, LDAP grubuna bağlı değil |
+| ~~UC-3 Yetkisiz erişim reddi~~ | — | — | — | — | ❌ **KALDIRILDI (B12)** — aynı gerekçe |
+| ~~UC-4 Politika tanımlama~~ | — | — | — | — | ❌ **KALDIRILDI (B12)** — `/admin/resources` API'si silindi |
+| ~~UC-5 Admin bypass~~ | — | — | — | — | ❌ **KALDIRILDI (B12)** — DOCMOST-ADMIN bypass mekanizması silindi |
+| UC-6 Grup üyeliği değişimi sonrası güncelleme | LDAP yöneticisi | Önbellek TTL dolmuş | §5.4, §9.2 | G5, FR-14 | ⚠️ Koddan doğrulandı; artık yalnızca B11'in space-otomatik-üyelik mekanizmasını etkiliyor (bkz. §5.4 B12 notu) |
+| UC-7 LDAP/authz kullanılamıyor | Sistem | authz veya LDAP erişilemez | login reddedilir | FR-15 / S11 | ✅ Tasarım + birim testle doğrulandı |
 
 ## 8. Bilinen Sınırlamalar ve Sonraki Adımlar
 
 | # | Sınırlama | Etki | Not |
 |---|---|---|---|
-| L1 | `search` modülü (`search.service.ts`) henüz authz servisine danışmıyor; mevcut Docmost page-permission filtrelemesi geçerli ama LDAP politikaları arama sonuçlarını filtrelemiyor | FR-18 tam karşılanmıyor | Toplu (batch) `authorize` çağrısı gerektirir — kapsam dışı bırakıldı, takip işi |
-| L2 | WebSocket/collaboration bağlantıları (`collaboration/`) LDAP yetkilendirmesinden geçmiyor | FR-19 tam karşılanmıyor | Aynı nedenle takip işi |
+| ~~L1~~ | ~~`search` modülü authz'a danışmıyor~~ | **KALDIRILDI (B12)** | Sayfa-seviyesi LDAP yetkilendirmesi hiç kalmadığı için bu sınırlama artık konu dışı |
+| ~~L2~~ | ~~WebSocket/collaboration LDAP yetkilendirmesinden geçmiyor~~ | **KALDIRILDI (B12)** | Aynı gerekçe |
 | L3 | Nested AD group resolution yok (yalnızca doğrudan `member`) | Kısıt K4'ün doğal sonucu | Gerekirse `LDAP_MATCHING_RULE_IN_CHAIN` ile genişletilebilir |
-| L4 | LDAP'ta karşılığı olmayan Docmost hesapları (ör. ilk kurulum admin'i) authz etkinleştirildiğinde **tüm politikalı sayfalarda** fail-closed reddedilir | Operasyonel: bootstrap admin ile içerik yönetimi yapılamaz | Öneri: bootstrap admin'in LDAP'ta karşılığı olmalı, veya o hesap için `AUTHZ_URL` geçici kapatılmalı |
+| ~~L4~~ | ~~LDAP'ta karşılığı olmayan Docmost hesapları fail-closed reddedilir~~ | **KALDIRILDI (B12)** | Artık böyle bir fail-closed sayfa reddi yok; bootstrap admin normal şekilde çalışır |
 | L5 | Public sharing özelliği (FR-20) kod olarak devre dışı bırakılmadı, yalnızca öneri olarak belgelendi | FR-20 kısmen karşılanıyor | Workspace ayarlarından manuel kapatılmalı |
-| L6 | `AuthorizationService.authorize()`, ebeveyn zinciri sonuna kadar izin verilerek ulaşıldığında, en son üretilen spesifik "allow" nedenini ("No policy configured for resource" gibi) genel bir "LDAP group authorized" mesajıyla eziyor | Yalnızca kozmetik (log okunabilirliği); `allowed` booleanı etkilenmiyor, Docmost zaten yalnızca bu alanı okuyor | §9 madde B6'da tespit edildi, düzeltilmedi (davranışsal etkisi yok) |
+| **L7 (ÇÖZÜLDÜ)** | ~~`POST /api/auth/ldap-login` hiçbir frontend koduna bağlı değildi~~ — artık web login formunda (`login-form.tsx`) normal e-posta/parola formunun altında ayrı bir **"Sign in with company account (LDAP)"** formu var; `username`/`password` alıp doğrudan `/api/auth/ldap-login`'e bağlı. Docmost'un kendi EE LDAP modal'ı (`apps/client/src/ee/...`) hâlâ kullanılmıyor ve hâlâ alakasız/eksik backend'e bağlı (bkz. §8.1) — kendi ayrı formumuz onun yerine geçmiyor, sayfada **ikisi de** (SSO/EE bölümü üstte, bizim LDAP formumuz altta, "or" ayracıyla) görünüyor. | Artık tarayıcıdan gerçek bir LDAP kullanıcısıyla (ör. `faruk`) giriş yapılabiliyor; bkz. §9 B8 ve [04-headless-browser-e2e-tests.md](./04-headless-browser-e2e-tests.md) §3.6. | `apps/client/src/features/auth/{types/auth.types.ts, services/auth-service.ts, hooks/use-auth.ts, components/login-form.tsx}` değişti. |
+
+## 8.1 Terminoloji Netliği: "Sistem LDAP ile çalışıyor" ne anlama geliyor? (artık baştan sona doğru)
+
+L7 çözülmeden önce bu dokümandaki "doğrulandı" ifadeleri yalnızca API/backend katmanını kapsıyordu. **Artık tarayıcı üzerinden de uçtan uca doğrulanmıştır** (bkz. §9 B8): gerçek bir headless browser oturumunda `faruk` kullanıcı adı/`faruk123` parolasıyla web formundan giriş yapıldı, `/home`'a yönlendirildi, ve DOCMOST-ADMIN bypass sayesinde LDAP-kısıtlı `Finance Only Page` içeriği görüntülenebildi (ekran görüntüsüyle kanıtlandı). Satır 92'deki (§5.1) sequence diyagramındaki "Browser" katılımcısı artık gerçekten de Docmost web arayüzünü temsil edebilir (curl ile de hâlâ çağrılabilir, ikisi de geçerli).
+
+### İlk kurulum (workspace bootstrap) hâlâ gerekli mi?
+
+**Evet.** `/api/auth/ldap-login` (ve `/api/auth/login`) bir **workspace**'in zaten var olmasını şart koşar (`@AuthWorkspace()` decorator'ı hostname/tek-tenant üzerinden mevcut bir workspace'i çözer). Workspace'i oluşturan **tek** kod yolu hâlâ `POST /api/auth/setup`'tır (`SignupService.initialSetup()`) ve bu her zaman **parola tabanlı** bir bootstrap admin hesabı yaratır — LDAP üzerinden "workspace oluştur" diye bir akış yoktur ve bu projede eklenmedi. Yani akış şu şekilde kalıyor:
+
+1. **Bir kez**: `POST /api/auth/setup` ile bootstrap admin + workspace oluşturulur (parola tabanlı, LDAP'tan bağımsız).
+2. **Sonrasında sürekli**: LDAP kullanıcıları (`faruk`, `ali`, `ayse`, ...) web formundaki yeni LDAP alanından giriş yaptıkça, `SignupService.findOrProvisionFromLdap()` onları aynı workspace'e otomatik üye olarak ekler — ayrıca setup/davet gerekmez.
+
+Önemli bir nüans: `findOrProvisionFromLdap()` yeni kullanıcıyı Docmost'un **native rolüyle** (`role` alanı belirtilmediği için varsayılan **`member`**) ekler. `DOCMOST-ADMIN` LDAP grubunun art​ık (B12 sonrası) sayfa/kaynak seviyesinde hiçbir özel bypass anlamı **yoktur** — bu grup adı yalnızca tarihsel bir isimdir; B11'in `INGWIKI_<AD>` → `INGWIKI-<AD>` space-eşleşme kuralı dışında LDAP gruplarının Docmost'un native workspace/space rolleriyle **hiçbir otomatik ilişkisi yoktur**. Gerekirse `findOrProvisionFromLdap()`'a belirli bir LDAP grubu için `role: 'owner'/'admin'` ataması eklenerek genişletilebilir — şu an **yapılmadı**, takip işi.
 
 ## 9. Geliştirme Sürecinde Bulunan ve Düzeltilen Sorunlar
 
@@ -281,6 +240,26 @@ Sistemi gerçekten `docker compose` ile ayağa kaldırıp uçtan uca test ederke
 | B5 | `LdapUser` (bir `record`) Redis'e önbelleğe alınırken serialize edilemiyordu; `GenericJackson2JsonRedisSerializer` denemesi de Spring Boot 4'ün Jackson 3 taban çizgisinde eksik `com.fasterxml.jackson.databind` sınıfları yüzünden **çöküş döngüsüne (crash-loop)** yol açtı | Canlı testte authz container'ı sürekli yeniden başlıyordu, `docker inspect ... RestartCount` ile fark edildi | `LdapUser implements Serializable` yapıldı, Redis cache varsayılan `JdkSerializationRedisSerializer`'a geri alındı (yalnızca anahtar serializer'ı `String` olarak özelleştirildi) |
 | B6 | `AuthorizationService.authorize()`'ın ebeveyn-zinciri döngüsü, hedef kaynak için üretilen spesifik "allow" nedenini döngü sonunda genel bir mesajla eziyor; ayrıca bazı testler artık hiç çağrılmayan (deny erken döndüğü için ulaşılamayan) repository metodlarını mock'luyordu | JUnit testi yazılırken (`unmanagedResourceWithNoPoliciesIsAllowed` beklenmedik mesaj döndürdü, üç test Mockito "UnnecessaryStubbingException" ile başarısız oldu) | Test asersiyonları gerçek (ve doğru) davranışa göre düzeltildi; üretim kodu bilerek değiştirilmedi (bkz. L6 — yalnızca kozmetik) |
 | B7 | `docker-compose.yml`'deki `backend` ağı `internal: true` olduğundan, bu ağa bağlı bir servisin host'a port yayınlaması (`ports:`) `HostConfig.PortBindings` dolu görünmesine rağmen gerçekte çalışmıyordu (`NetworkSettings.Ports` boş kalıyordu) | Geçici bir tarayıcı-testi amaçlı port yayınlama denemesi host'tan erişilemedi | Yalnızca geçici/yerel test amacıyla ilgili servis ek olarak `internal:false` olan `frontend` ağına da bağlandı; kalıcı `docker-compose.yml`'de `backend` hâlâ `internal: true` |
+| B8 | L7'nin çözümü: frontend'e gerçek bir LDAP giriş yolu eklendi (`ILdapLogin` tipi, `ldapLogin()` servis çağrısı → `POST /api/auth/ldap-login`, `useAuth().ldapSignIn()`) | Kullanıcının "frontend LDAP'ı desteklemiyorsa sistem neyle çalışıyor?" sorusu üzerine | Docmost image'ı yeniden build edilip yeniden başlatıldı; headless browser'da gerçekten `faruk`/`faruk123` ile web formundan giriş yapıldı, `/home`'a yönlendi, ve LDAP-kısıtlı `Finance Only Page`'in içeriği (DOCMOST-ADMIN bypass ile) görüntülenebildi — ekran görüntüsüyle kanıtlandı (bkz. 04 §3.6) |
+| B9 | B8'in ardından login formu **tek form + iki ayrı submit butonu** olacak şekilde yeniden düzenlendi: aynı "Email or username" alanı hem normal girişte e-posta hem de LDAP girişinde kullanıcı adı olarak paylaşılıyor; hangi butona basıldığı (`event.nativeEvent.submitter.value`) hangi akışın (`signIn` vs `ldapSignIn`) çalışacağını belirliyor; e-posta formatı doğrulaması yalnızca şifre-yolu seçildiğinde yapılıyor | Kullanıcı talebi: "bir form olsun, iki submit olsun... kullanıcı hangisinden giriş yapacağına karar versin" | `login-form.tsx` tek `<form>`'a indirgendi (iki ayrı `useForm`/`<form>` yerine), `onSubmit` el ile `form.validate()` + `submitter.value` kontrolü yapıyor. Headless browser'da üç senaryo da doğrulandı: (1) `faruk`/`faruk123` ile LDAP butonu → `/home`; (2) `faruk`/yanlış parola ile LDAP butonu → ekranda kırmızı "Invalid LDAP credentials" alert'i (hata mesajı doğru dışarı aktarılıyor); (3) `faruk` (e-posta değil) ile normal "Sign In" butonu → alanın altında inline "Enter a valid email" hatası, hiç API çağrısı yapılmadı; (4) `admin@placeholder.test`/`Password123!` ile normal "Sign In" → `/home` (regresyon yok) |
+| B10 | LDAP ile provision edilen kullanıcılar artık Docmost `users` tablosunda **gerçek bir parola hash'i taşımıyor**. Daha önce `findOrProvisionFromLdap()`, hiç kullanılmayan rastgele bir `nanoIdGen(32)` parolası üretip hash'liyordu (hem gereksiz hem de "parola var" yanılgısına yol açıyordu) | Kullanıcı talebi: "user tablosunda password bu kullanıcı için tutulmasa, external vs şeklinde bir kolonda işaretlense" | Yeni migration `20261004T140000-add-auth-source-to-users` ile `users.auth_source` kolonu eklendi (`'local'` varsayılan, `'ldap'` LDAP-provisioned kullanıcılar için) ve `users.password` nullable yapıldı (zaten şemada `NOT NULL` değildi, kolon üzerinde garanti altına alındı). `findOrProvisionFromLdap()` artık `password: null, authSource: 'ldap'` ile insert ediyor; `UserRepo.insertUser()` yalnızca parola verilmişse hash'liyor. `AuthService.login()` ve `changePassword()`'a `user.password` null ise bcrypt'e hiç girmeden genel bir hata (`"Email or password does not match"` / `"Password change is not available for LDAP/SSO accounts"`) döndüren erken-çıkış eklendi — null hash ile `bcrypt.compare` çağrılıp 500 patlaması engellendi. Oturum oluşturma yolu (`sessionService.createSessionAndToken(user)`) LDAP ve yerel girişte **zaten aynıydı** (B8'den beri), bu nedenle "LDAP'tan login olunca local user gibi devam etsin" isteği ek bir değişiklik gerektirmedi. Headless browser'da doğrulandı: mevcut `faruk/ali/ayse` demo kullanıcıları `auth_source='ldap', password=NULL` olacak şekilde elle güncellendi (gerçek ortamda yeni kullanıcılar zaten bu şekilde provision edilir), sonra (1) `faruk`/`faruk123` + LDAP butonu → `/home` (regresyon yok); (2) `faruk@placeholder.test` + herhangi bir parola + "Sign In" (şifre) butonu → temiz `401` + `"Email or password does not match"`, sunucu loglarında hata/istisna yok |
+| B11 | LDAP grup tabanlı otomatik **space** üyeliği eklendi: `INGWIKI_<AD>` LDAP grubundaki bir kullanıcı, her LDAP girişinde, workspace'teki `INGWIKI-<AD>` adlı space'e otomatik olarak `writer` rolüyle üye yapılıyor; bu noktadan sonra Docmost'un native `SpaceRole` (admin/writer/reader) yetkilendirmesi normal şekilde devreye giriyor | Kullanıcı talebi: "space isimleri INGWIKI ile başlasın... bu space'e girmek istediğinde kullanıcının ldap grubunda INGWIKI_SPACENAME olsa ve girse... bu girişten sonra native yetkiler geçerli olsa" | Yeni `LdapSpaceProvisionService` (`integrations/ldap-authz/ldap-space-provision.service.ts`), `AuthService.loginWithLdap()` içinden, kullanıcı provision edildikten hemen sonra çağrılıyor: `ldapUser.groups` içindeki her `INGWIKI_<AD>` deseniyle eşleşen grup için, aynı workspace'te `INGWIKI-<AD>` adında (case-insensitive) bir space aranıyor; bulunursa ve kullanıcı henüz üye değilse `SpaceMemberService.addUserToSpace(userId, spaceId, SpaceRole.WRITER, workspaceId)` ile eklenerek **idempotent ve yalnızca ekleyici** (LDAP grubundan çıkarılsa bile mevcut üyeliği geri almaz) bir senkronizasyon yapılıyor. Tek bırakma hatası: `SpaceMemberRepo.getUserSpaceRoles()` üye yoksa `[]` değil `undefined` döndürüyor; ilk implementasyon bunu kontrol etmeyince `existingRoles.length` çağrısı `500 Internal Server Error`'a yol açtı (`TypeError: Cannot read properties of undefined`), `existingRoles?.length` ile düzeltildi. Headless browser + doğrudan SQL ile doğrulandı: test LDAP dizinine `INGWIKI_SPACE1` grubu (üye: `ali`) eklendi, workspace'e `INGWIKI-SPACE1`/`INGWIKI-SPACE2` space'leri oluşturuldu; `ali`'nin LDAP girişiyle **yalnızca** `INGWIKI-SPACE1`'e `writer` rolüyle otomatik eklendiği (`INGWIKI-SPACE2`'ye **eklenmediği**) doğrulandı; `/spaces` listesinde yalnızca `General` + `INGWIKI-SPACE1` göründü; space içinde "New page"/"Create page"/"Space settings" butonlarının görünmesiyle native `writer` yetkisinin geçerli olduğu kanıtlandı; `INGWIKI-SPACE2`'ye doğrudan URL ile gidildiğinde temiz bir `404` alındı |
+| B12 | **DOCMOST-ADMIN bypass + LDAP grup politikası (resource/policy) mekanizması tamamen kaldırıldı**, bununla birlikte `authz` servisinin **veritabanı gereksinimi de ortadan kalktı**: `/internal/authorize` ve `/admin/resources/**` endpoint'leri, `Resource`/`Policy` JPA entity'leri + repository'leri, `AuthorizationService`/`AuthorizationController`/`ResourceAdminController`, `docmost_authz` Postgres DB'si (`authz-postgres` servisi + `schema.sql`), `LdapProperties.adminGroup`, `LdapService.findUserByEmail()` (yalnızca authorize tarafından kullanılıyordu) — hepsi silindi. Docmost tarafında `PageAccessService.assertLdapAllowed()` ve `LdapAuthzService.isAllowed()` kaldırıldı; `LdapPermission`/`LdapResourceType` enum'ları silindi | Kullanıcı talebi: "DOCMOST-ADMIN yapısında kurulu olan ldap grup mekanizmasını... kaldır. dolayısıyla authz modülünün db gereksinimi kalmasın" | authz: `pom.xml`'den `spring-boot-starter-data-jpa` + `postgresql` kaldırıldı; `application.yml`'den `spring.datasource`/`spring.jpa` blokları + `docmost.ldap.admin-group` silindi. `docker-compose.yml`'den `authz-postgres` servisi (image, env, volume, healthcheck), `authz`'ın ona olan `depends_on`'u, `AUTHZ_DB_PASSWORD`/`LDAP_ADMIN_GROUP` env değişkenleri ve `authz-postgres` named volume'u kaldırıldı (`.env`/`.env.example`'dan da aynı iki değişken silindi). **Not:** `/internal/authenticate` (login) ve LDAP grup bilgisinin space-otomatik-üyelik için kullanılması (B11, §9.2) bu değişiklikten **etkilenmedi** — B11 zaten authz'nin DB'siyle değil, doğrudan `authenticate()` yanıtındaki `groups` alanıyla çalışıyordu. Doğrulama: `mvn clean test` → 13/13 geçti (eski 30'dan, silinen testler hariç); `docker compose build authz`/`docker compose build docmost` ikisi de başarılı; canlı ortamda `authz` container'ı **hiç datasource/JPA log satırı olmadan** başladı; `ali`/`ali123` ile taze bir LDAP girişi hâlâ `/home`'a yönlendirdi (B11 etkilenmemiş); `docker compose logs docmost\|authz \| grep -i error` boş döndü; orphan `authz-postgres` container'ı ve `authz-postgres` volume'u temizlendi |
+
+## 9.1 `users.auth_source` ve parolasız LDAP kullanıcıları (B10 detayı)
+
+- **Şema**: `users.auth_source varchar NOT NULL DEFAULT 'local'`, `users.password varchar NULL`.
+- **Provisioning**: `SignupService.findOrProvisionFromLdap()` yeni kullanıcıyı `password: null, authSource: 'ldap'` ile oluşturur; normal `signup()`/`initialSetup()` yolları `authSource` alanını hiç belirtmez, DB varsayılanı (`'local'`) devreye girer.
+- **Login tarafı korumaları**: `AuthService.login()` parola karşılaştırmasından **önce** `user.password` boşsa genel `"Email or password does not match"` hatasıyla reddeder (kullanıcı numaralandırmayı önlemek için LDAP kullanıcısı olup olmadığını ayrıca belirtmez). `AuthService.changePassword()` aynı şekilde `user.password` boşsa `"Password change is not available for LDAP/SSO accounts"` ile reddeder. `forgotPassword`/`passwordReset` akışları bilinçli olarak **değiştirilmedi** — bir LDAP kullanıcısı teorik olarak parola sıfırlama akışından bir Docmost yerel parolası edinebilir; bu, talep edilmemiş bir kapsam genişlemesi olduğundan şimdilik takip işi olarak bırakıldı.
+- **Oturum tutarlılığı**: `loginWithLdap()` ve `login()` ikisi de aynı `sessionService.createSessionAndToken(user)` çağrısına çıkar — LDAP girişi sonrası oturum, cookie, ve sonraki tüm istekler yerel girişle **birebir aynı** şekilde işler; ayrı bir "LDAP oturumu" kavramı yoktur.
+
+## 9.2 LDAP grubuna göre otomatik space üyeliği (B11 detayı)
+
+- **Kural**: `INGWIKI_<AD>` adlı bir LDAP grubunun üyesi olan bir kullanıcı, LDAP ile her giriş yaptığında, aynı workspace içinde `INGWIKI-<AD>` adlı (alt çizgi → tire, case-insensitive) bir space varsa, oraya otomatik olarak `SpaceRole.WRITER` rolüyle eklenir. Örnek: LDAP grubu `INGWIKI_SPACE1` → space `INGWIKI-SPACE1`.
+- **Idempotent ve yalnızca ekleyici**: Her girişte çalışır ama zaten üye olan kullanıcıyı tekrar eklemez (önce `SpaceMemberRepo.getUserSpaceRoles()` ile kontrol edilir); LDAP grubundan çıkarılma durumunda mevcut üyeliği **geri almaz** (kapsam dışı, bilinçli olarak basit tutuldu).
+- **Bundan sonra native yetki geçerli**: Üyelik eklendikten sonra, o space içindeki tüm işlemler (sayfa oluşturma/düzenleme, space ayarları, vb.) tamamen Docmost'un kendi `SpaceRole` (`admin`/`writer`/`reader`) yetkilendirme sistemi tarafından yönetilir — ayrı bir özel yetki kontrolü yoktur. (B12 öncesinde ayrıca bir sayfa-seviyesi `authz` bypass mekanizması da vardı — DOCMOST-ADMIN grubu — ama bu tamamen kaldırıldı, bkz. §9 B12; artık LDAP gruplarının Docmost yetkilendirmesine tek katkısı bu space-otomatik-üyelik kuralıdır.)
+- **Uygulama noktası**: `AuthService.loginWithLdap()`, `findOrProvisionFromLdap()`'tan hemen sonra `LdapSpaceProvisionService.syncSpaceMemberships(user.id, workspaceId, ldapUser.groups)` çağrır. Bu servis `core/space` modülünün `SpaceMemberService.addUserToSpace()`'ini kullanır; başarısız olursa (ör. DB hatası) hatayı loglar ama login akışını **bloklamaz**.
+- **Bilinen sınırlama**: Yalnızca `normal` (private/public fark etmeksizin) space'ler desteklenir; grup adındaki `<AD>` kısmı ile space adındaki `<AD>` kısmı birebir (case-insensitive) eşleşmelidir.
 
 ## 10. Orijinal Taslaktan (`docmost-ldap-page-authorization.md`) Bilinçli Sapmalar
 
@@ -297,10 +276,10 @@ Kaynak taslak doküman bazı noktalarda daha ayrıntılı veya farklı bir tasar
 
 - Repo yerleşimi: `/home/onder/dev/docmost/` Docmost OSS fork'unun kendi git deposudur (`git rev-parse --show-toplevel` bu dizini verir); bu depo içindeki Docmost kaynak kodu haricindeki her şey (`authz/`, `nginx/`, `certs/`, `test/`, `spec/`, `docker-compose.yml`, `.env*`) aynı repo içinde **`ingwiki/` alt klasörüne** taşınmıştır, böylece tüm ek geliştirmeler de aynı git geçmişi üzerinden takip edilebilir. `docker-compose.yml`'in `docmost` servisi `context: ..` ile (yani repo kök dizinini) build eder.
 - Tüm servisler `ingwiki/docker-compose.yml` ile ayağa kalkar: `cd ingwiki && docker compose up -d`; `.env.example` → `.env` kopyalanıp secret'lar `openssl rand -hex 32` ile üretilmelidir (`.env` ve `certs/*.pem`, kök `.gitignore` ile commit edilmekten korunur).
-- Geliştirme/test ortamı için gerçek AD yerine `ingwiki/test/ldap/` altında `osixia/openldap` + seed LDIF kullanılır (`dc=placeholder,dc=test`, kullanıcılar `faruk/ali/ayse`, gruplar `DOCMOST-ADMIN/IT/ARCHITECT/HR/FINANCE`).
+- Geliştirme/test ortamı için gerçek AD yerine `ingwiki/test/ldap/` altında `osixia/openldap` + seed LDIF kullanılır (`dc=placeholder,dc=test`, kullanıcılar `faruk/ali/ayse`, gruplar `DOCMOST-ADMIN/IT/ARCHITECT/HR/FINANCE/INGWIKI_SPACE1` — `DOCMOST-ADMIN` artık yalnızca tarihsel bir isim, B12 sonrası özel bir anlamı yok).
 - Dışarıya yalnızca Nginx'in 443'ü (self-signed sertifika, `ingwiki` hostname'i) açılır; üretimde gerçek bir sertifika ile değiştirilmelidir.
-- `authz` servisinin `/internal/**` ve `/admin/**` endpoint'leri yalnızca `X-Docmost-Internal-Secret` header'ı ile erişilebilir (S6, S7).
-- `authz` servisinin birim testlerini çalıştırmak için: `cd ingwiki/authz && mvn test` (gerçek LDAP/Docker gerekmez; bkz. §6).
+- `authz` servisi **veritabanı kullanmaz** (B12); `/internal/**` endpoint'leri (yalnızca `/internal/authenticate` kaldı, `/admin/**` tamamen silindi) yalnızca `X-Docmost-Internal-Secret` header'ı ile erişilebilir (S6, S7).
+- `authz` servisinin birim testlerini çalıştırmak için: `cd ingwiki/authz && mvn clean test` (gerçek LDAP/Docker/DB gerekmez; `clean` şart — Java kaynak dosyaları silindiğinde `target/`'daki eski derlenmiş testler `mvn test` ile hâlâ çalışmaya çalışıp yanlış hatalar verir; bkz. §6).
 - §5'teki canlı doğrulamanın tekrarlanabilir, adım adım script'i ve en güncel çalıştırma sonuçları için → [04-headless-browser-e2e-tests.md](./04-headless-browser-e2e-tests.md).
 
 ---

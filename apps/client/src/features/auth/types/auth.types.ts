@@ -3,6 +3,11 @@ export interface ILogin {
   password: string;
 }
 
+export interface ILdapLogin {
+  username: string;
+  password: string;
+}
+
 export interface IRegister {
   name?: string;
   email: string;

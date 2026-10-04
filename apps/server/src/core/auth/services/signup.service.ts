@@ -12,7 +12,6 @@ import { InjectKysely } from 'nestjs-kysely';
 import { User, Workspace } from '@docmost/db/types/entity.types';
 import { GroupUserRepo } from '@docmost/db/repos/group/group-user.repo';
 import { UserRole } from '../../../common/helpers/types/permission';
-import { nanoIdGen } from '../../../common/helpers';
 import { AuditEvent, AuditResource } from '../../../common/events/audit-events';
 import {
   AUDIT_SERVICE,
@@ -120,7 +119,8 @@ export class SignupService {
         {
           name: displayName || email.split('@')[0],
           email,
-          password: nanoIdGen(32),
+          password: null,
+          authSource: 'ldap',
           workspaceId,
           emailVerifiedAt: new Date(),
         },

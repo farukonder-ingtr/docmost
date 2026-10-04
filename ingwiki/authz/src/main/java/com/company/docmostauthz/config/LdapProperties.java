@@ -11,7 +11,6 @@ public class LdapProperties {
     private String userSearchFilter;
     private String groupSearchBase;
     private String groupSearchFilter;
-    private String adminGroup = "DOCMOST-ADMIN";
     private long groupsCacheTtlSeconds = 60;
 
     public String getUserSearchBase() {
@@ -44,14 +43,6 @@ public class LdapProperties {
 
     public void setGroupSearchFilter(String groupSearchFilter) {
         this.groupSearchFilter = groupSearchFilter;
-    }
-
-    public String getAdminGroup() {
-        return adminGroup;
-    }
-
-    public void setAdminGroup(String adminGroup) {
-        this.adminGroup = adminGroup;
     }
 
     public long getGroupsCacheTtlSeconds() {

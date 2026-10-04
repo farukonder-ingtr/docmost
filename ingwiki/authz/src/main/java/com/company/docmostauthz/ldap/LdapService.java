@@ -58,16 +58,6 @@ public class LdapService {
         return search(ldapProperties.getUserSearchFilter().replace("{0}", username));
     }
 
-    /**
-     * Docmost only knows the authenticated user's email (not their LDAP uid),
-     * so /internal/authorize resolves identity and group membership by mail
-     * instead of the uid-based filter used at login time.
-     */
-    @Cacheable(cacheNames = RedisConfig.USER_GROUPS_CACHE, key = "'email:' + #email")
-    public LdapUser findUserByEmail(String email) {
-        return search("(mail=" + escapeFilter(email) + ")");
-    }
-
     private LdapUser search(String filter) {
 
         List<LdapUser> users = ldapTemplate.search(
