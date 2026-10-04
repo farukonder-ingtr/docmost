@@ -41,3 +41,9 @@ lerna-debug.log*
 .nx
 .nx/installation
 .nx/cache
+
+# Maven build output (ingwiki/authz)
+target/
+
+# local self-signed dev certs (regenerate with openssl, never commit private keys)
+ingwiki/certs/*.pem

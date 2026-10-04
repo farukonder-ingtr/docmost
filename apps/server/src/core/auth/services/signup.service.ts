@@ -12,6 +12,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { User, Workspace } from '@docmost/db/types/entity.types';
 import { GroupUserRepo } from '@docmost/db/repos/group/group-user.repo';
 import { UserRole } from '../../../common/helpers/types/permission';
+import { nanoIdGen } from '../../../common/helpers';
 import { AuditEvent, AuditResource } from '../../../common/events/audit-events';
 import {
   AUDIT_SERVICE,
@@ -97,6 +98,54 @@ export class SignupService {
     });
 
     return user;
+  }
+
+  /**
+   * Finds the Docmost user matching an LDAP-authenticated email, or
+   * provisions one on first login. Never stores the LDAP password.
+   */
+  async findOrProvisionFromLdap(
+    email: string,
+    displayName: string,
+    workspaceId: string,
+  ): Promise<User> {
+    const existing = await this.userRepo.findByEmail(email, workspaceId);
+    if (existing) {
+      return existing;
+    }
+
+    return executeTx(this.db, async (trx) => {
+      const workspace = await this.workspaceRepo.findById(workspaceId, { trx });
+      const user = await this.userRepo.insertUser(
+        {
+          name: displayName || email.split('@')[0],
+          email,
+          password: nanoIdGen(32),
+          workspaceId,
+          emailVerifiedAt: new Date(),
+        },
+        trx,
+        { pageEditMode: getWorkspaceDefaultPageEditMode(workspace) },
+      );
+
+      await this.workspaceService.addUserToWorkspace(
+        user.id,
+        workspaceId,
+        undefined,
+        trx,
+      );
+      await this.groupUserRepo.addUserToDefaultGroup(user.id, workspaceId, trx);
+
+      this.auditService.log({
+        event: AuditEvent.USER_CREATED,
+        resourceType: AuditResource.USER,
+        resourceId: user.id,
+        changes: { after: { name: user.name, email: user.email } },
+        metadata: { source: 'ldap' },
+      });
+
+      return user;
+    });
   }
 
   async initialSetup(

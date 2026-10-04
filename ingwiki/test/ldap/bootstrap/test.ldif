@@ -1,0 +1,80 @@
+# Test directory for local/dev docker-compose: dc=placeholder,dc=test
+# Loaded by ./test/ldap/seed.sh via ldapadd after the osixia/openldap base DN exists.
+
+dn: ou=Users,dc=placeholder,dc=test
+objectClass: organizationalUnit
+ou: Users
+
+dn: ou=Groups,dc=placeholder,dc=test
+objectClass: organizationalUnit
+ou: Groups
+
+dn: uid=faruk,ou=Users,dc=placeholder,dc=test
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: faruk
+cn: Faruk Yilmaz
+sn: Yilmaz
+displayName: Faruk Yilmaz
+mail: faruk@placeholder.test
+uidNumber: 10001
+gidNumber: 10001
+homeDirectory: /home/faruk
+loginShell: /bin/bash
+userPassword: faruk123
+
+dn: uid=ali,ou=Users,dc=placeholder,dc=test
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: ali
+cn: Ali Demir
+sn: Demir
+displayName: Ali Demir
+mail: ali@placeholder.test
+uidNumber: 10002
+gidNumber: 10002
+homeDirectory: /home/ali
+loginShell: /bin/bash
+userPassword: ali123
+
+dn: uid=ayse,ou=Users,dc=placeholder,dc=test
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: ayse
+cn: Ayse Kaya
+sn: Kaya
+displayName: Ayse Kaya
+mail: ayse@placeholder.test
+uidNumber: 10003
+gidNumber: 10003
+homeDirectory: /home/ayse
+loginShell: /bin/bash
+userPassword: ayse123
+
+dn: cn=DOCMOST-ADMIN,ou=Groups,dc=placeholder,dc=test
+objectClass: groupOfNames
+cn: DOCMOST-ADMIN
+member: uid=faruk,ou=Users,dc=placeholder,dc=test
+
+dn: cn=DOCMOST-IT,ou=Groups,dc=placeholder,dc=test
+objectClass: groupOfNames
+cn: DOCMOST-IT
+member: uid=faruk,ou=Users,dc=placeholder,dc=test
+
+dn: cn=DOCMOST-ARCHITECT,ou=Groups,dc=placeholder,dc=test
+objectClass: groupOfNames
+cn: DOCMOST-ARCHITECT
+member: uid=faruk,ou=Users,dc=placeholder,dc=test
+
+dn: cn=DOCMOST-HR,ou=Groups,dc=placeholder,dc=test
+objectClass: groupOfNames
+cn: DOCMOST-HR
+member: uid=ali,ou=Users,dc=placeholder,dc=test
+
+dn: cn=DOCMOST-FINANCE,ou=Groups,dc=placeholder,dc=test
+objectClass: groupOfNames
+cn: DOCMOST-FINANCE
+member: uid=ayse,ou=Users,dc=placeholder,dc=test

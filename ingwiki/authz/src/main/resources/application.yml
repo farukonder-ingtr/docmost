@@ -1,0 +1,42 @@
+server:
+  port: 8080
+
+spring:
+
+  datasource:
+    url: ${AUTHZ_DATABASE_URL:jdbc:postgresql://authz-postgres:5432/docmost_authz}
+    username: ${AUTHZ_DB_USER:docmost}
+    password: ${AUTHZ_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+
+  ldap:
+    urls: ${LDAP_URL}
+    # No "base" here on purpose: LdapTemplate would prefix every DN with it,
+    # and our user/group search bases + bind DN below are already absolute.
+    username: ${LDAP_BIND_DN}
+    password: ${LDAP_BIND_PASSWORD}
+
+docmost:
+  internal:
+    shared-secret: ${DOCMOST_INTERNAL_SECRET}
+
+  ldap:
+    user-search-base: ${LDAP_USER_SEARCH_BASE}
+    user-search-filter: ${LDAP_USER_SEARCH_FILTER}
+    group-search-base: ${LDAP_GROUP_SEARCH_BASE}
+    group-search-filter: ${LDAP_GROUP_SEARCH_FILTER}
+    admin-group: ${LDAP_ADMIN_GROUP:DOCMOST-ADMIN}
+    groups-cache-ttl-seconds: ${LDAP_GROUPS_CACHE_TTL_SECONDS:60}
+
+logging:
+  level:
+    com.company.docmostauthz: INFO

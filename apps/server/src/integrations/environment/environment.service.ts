@@ -79,6 +79,18 @@ export class EnvironmentService {
     return this.configService.get<string>('GOTENBERG_URL');
   }
 
+  getAuthzUrl(): string | undefined {
+    return this.configService.get<string>('AUTHZ_URL');
+  }
+
+  getDocmostInternalSecret(): string | undefined {
+    return this.configService.get<string>('DOCMOST_INTERNAL_SECRET');
+  }
+
+  isLdapAuthEnabled(): boolean {
+    return Boolean(this.getAuthzUrl() && this.getDocmostInternalSecret());
+  }
+
   getStorageDriver(): string {
     return this.configService.get<string>('STORAGE_DRIVER', 'local');
   }

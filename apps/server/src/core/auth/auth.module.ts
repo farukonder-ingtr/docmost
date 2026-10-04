@@ -5,9 +5,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { WorkspaceModule } from '../workspace/workspace.module';
 import { SignupService } from './services/signup.service';
 import { TokenModule } from './token.module';
+import { LdapAuthzModule } from '../../integrations/ldap-authz/ldap-authz.module';
 
 @Module({
-  imports: [TokenModule, WorkspaceModule],
+  imports: [TokenModule, WorkspaceModule, LdapAuthzModule],
   controllers: [AuthController],
   providers: [AuthService, SignupService, JwtStrategy],
   exports: [SignupService],

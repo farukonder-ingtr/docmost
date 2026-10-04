@@ -7,6 +7,11 @@ import {
   SpaceCaslSubject,
 } from '../../casl/interfaces/space-ability.type';
 import { SpaceRepo } from '@docmost/db/repos/space/space.repo';
+import { LdapAuthzService } from '../../../integrations/ldap-authz/ldap-authz.service';
+import {
+  LdapPermission,
+  LdapResourceType,
+} from '../../../integrations/ldap-authz/ldap-authz.types';
 
 @Injectable()
 export class PageAccessService {
@@ -14,7 +19,34 @@ export class PageAccessService {
     private readonly pagePermissionRepo: PagePermissionRepo,
     private readonly spaceAbility: SpaceAbilityFactory,
     private readonly spaceRepo: SpaceRepo,
+    private readonly ldapAuthzService: LdapAuthzService,
   ) {}
+
+  /**
+   * Secondary authorization layer: LDAP group policies (see
+   * docmost-ldap-page-authorization.md). Runs in addition to, never instead
+   * of, the space/page permission checks above — both must allow access.
+   */
+  private async assertLdapAllowed(
+    page: Page,
+    user: User,
+    permission: LdapPermission,
+  ): Promise<void> {
+    if (!this.ldapAuthzService.isEnabled()) {
+      return;
+    }
+
+    const allowed = await this.ldapAuthzService.isAllowed(
+      user.email,
+      LdapResourceType.PAGE,
+      page.id,
+      permission,
+    );
+
+    if (!allowed) {
+      throw new ForbiddenException();
+    }
+  }
 
   /**
    * Validate user can view page, throws ForbiddenException if not.
@@ -37,6 +69,8 @@ export class PageAccessService {
     if (!canAccess) {
       throw new ForbiddenException();
     }
+
+    await this.assertLdapAllowed(page, user, LdapPermission.VIEW);
   }
 
   /**
@@ -60,10 +94,24 @@ export class PageAccessService {
       throw new ForbiddenException();
     }
 
+    await this.assertLdapAllowed(page, user, LdapPermission.VIEW);
+
+    const localCanEdit = hasAnyRestriction
+      ? canEdit
+      : ability.can(SpaceCaslAction.Edit, SpaceCaslSubject.Page);
+
+    const ldapCanEdit =
+      localCanEdit && this.ldapAuthzService.isEnabled()
+        ? await this.ldapAuthzService.isAllowed(
+            user.email,
+            LdapResourceType.PAGE,
+            page.id,
+            LdapPermission.EDIT,
+          )
+        : localCanEdit;
+
     return {
-      canEdit: hasAnyRestriction
-        ? canEdit
-        : ability.can(SpaceCaslAction.Edit, SpaceCaslSubject.Page),
+      canEdit: ldapCanEdit,
       hasRestriction: hasAnyRestriction,
     };
   }
@@ -98,6 +146,8 @@ export class PageAccessService {
         throw new ForbiddenException();
       }
     }
+
+    await this.assertLdapAllowed(page, user, LdapPermission.EDIT);
 
     return { hasRestriction: hasAnyRestriction };
   }

@@ -10,6 +10,8 @@
 </div>
 <br />
 
+> **Bu depo hakkında (fork notu):** Bu depo, yukarıdaki açık kaynak (AGPL-3.0) Docmost'un bir fork'udur. Docmost kaynak kodu (`apps/`, `packages/`, vb.) **upstream'den düzenli olarak çekilerek (pull/merge)** güncel tutulur ve kendi içinde değiştirilmez. Bunun üzerine, LDAP kimlik doğrulama ve sayfa-bazlı yetkilendirme ekleyen **`ingwiki/`** adlı ayrı bir modül eklenmiştir. Mevcut durum **`ingwiki-v1.0`** olarak etiketlenmiştir (git tag). Detaylar için → [ingwiki/README.md](./ingwiki/README.md).
+
 ## Getting started
 
 To get started with Docmost, please refer to our [documentation](https://docmost.com/docs) or try our [cloud version](https://docmost.com/pricing) .
@@ -43,6 +45,8 @@ All files in the following directories are licensed under the Docmost Enterprise
   - apps/server/src/ee
   - apps/client/src/ee
   - packages/ee
+
+`ingwiki/` is **not** part of upstream Docmost; it is a separate module added in this fork (LDAP authentication + page-level authorization, see [ingwiki/README.md](./ingwiki/README.md)) and follows its own versioning (`ingwiki-vX.Y`).
 
 ### Contributing
 

@@ -43,6 +43,7 @@ import {
 import { EnvironmentService } from '../../../integrations/environment/environment.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { EventName } from '../../../common/events/event.contants';
+import { LdapAuthzService } from '../../../integrations/ldap-authz/ldap-authz.service';
 
 @Injectable()
 export class AuthService {
@@ -59,9 +60,48 @@ export class AuthService {
     private domainService: DomainService,
     private environmentService: EnvironmentService,
     private eventEmitter: EventEmitter2,
+    private ldapAuthzService: LdapAuthzService,
     @InjectKysely() private readonly db: KyselyDB,
     @Inject(AUDIT_SERVICE) private readonly auditService: IAuditService,
   ) {}
+
+  /**
+   * Authenticates against LDAP (via the authz service), provisions the
+   * Docmost user on first login, then creates a native Docmost session —
+   * the LDAP password is never stored or reused as a Docmost session secret.
+   */
+  async loginWithLdap(username: string, password: string, workspaceId: string) {
+    if (!this.ldapAuthzService.isEnabled()) {
+      throw new UnauthorizedException('LDAP login is not configured');
+    }
+
+    const ldapUser = await this.ldapAuthzService.authenticate(
+      username,
+      password,
+    );
+
+    const user = await this.signupService.findOrProvisionFromLdap(
+      ldapUser.email,
+      ldapUser.displayName,
+      workspaceId,
+    );
+
+    if (isUserDisabled(user)) {
+      throw new UnauthorizedException('Email or password does not match');
+    }
+
+    user.lastLoginAt = new Date();
+    await this.userRepo.updateLastLogin(user.id, workspaceId);
+
+    this.auditService.log({
+      event: AuditEvent.USER_LOGIN,
+      resourceType: AuditResource.USER,
+      resourceId: user.id,
+      metadata: { source: 'ldap' },
+    });
+
+    return this.sessionService.createSessionAndToken(user);
+  }
 
   async login(loginDto: LoginDto, workspaceId: string) {
     const user = await this.userRepo.findByEmail(loginDto.email, workspaceId, {

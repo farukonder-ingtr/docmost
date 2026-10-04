@@ -16,6 +16,7 @@ import {
   AUTH_THROTTLER,
 } from '../../integrations/throttle/throttler-names';
 import { LoginDto } from './dto/login.dto';
+import { LdapLoginDto } from './dto/ldap-login.dto';
 import { AuthService } from './services/auth.service';
 import { SessionService } from '../session/session.service';
 import { SetupGuard } from './guards/setup.guard';
@@ -101,6 +102,23 @@ export class AuthController {
     }
 
     const authToken = await this.authService.login(loginInput, workspace.id);
+    this.setAuthCookie(res, authToken);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('ldap-login')
+  async ldapLogin(
+    @AuthWorkspace() workspace: Workspace,
+    @Res({ passthrough: true }) res: FastifyReply,
+    @Body() ldapLoginDto: LdapLoginDto,
+  ) {
+    validateSsoEnforcement(workspace);
+
+    const authToken = await this.authService.loginWithLdap(
+      ldapLoginDto.username,
+      ldapLoginDto.password,
+      workspace.id,
+    );
     this.setAuthCookie(res, authToken);
   }
 
