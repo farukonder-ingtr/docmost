@@ -13,12 +13,12 @@ docker compose ps                       # hepsi Up/healthy olmalı
 
 Testler iki şekilde çalıştırılır:
 
-- **A) `curl` ile API testleri** — `https://docs.company.local` (self-signed sertifika, `-k` ile) üzerinden, TLS/nginx dahil tam yoldan.
+- **A) `curl` ile API testleri** — `https://ingwiki` (self-signed sertifika, `-k` ile) üzerinden, TLS/nginx dahil tam yoldan.
 - **B) Headless browser testleri** — Chromium tabanlı araç self-signed sertifikaya güvenmediği için (`ERR_CERT_AUTHORITY_INVALID`), yalnızca bu adım için geçici bir **düz HTTP dev shim** kullanılır (bkz. §2).
 
 ## 2. Headless Browser İçin Geçici HTTP Shim
 
-Nginx/TLS yolunu bozmadan, yalnızca tarayıcı testi süresince `docmost` servisini `docs.company.local:3000` üzerinden düz HTTP ile de erişilebilir kılan bir `docker-compose.override.yml`:
+Nginx/TLS yolunu bozmadan, yalnızca tarayıcı testi süresince `docmost` servisini `ingwiki:3000` üzerinden düz HTTP ile de erişilebilir kılan bir `docker-compose.override.yml`:
 
 ```yaml
 # Temporary, local-only: lets the headless browser verify the UI over plain HTTP
@@ -27,7 +27,7 @@ Nginx/TLS yolunu bozmadan, yalnızca tarayıcı testi süresince `docmost` servi
 services:
   docmost:
     environment:
-      APP_URL: http://docs.company.local:3000
+      APP_URL: http://ingwiki:3000
     ports:
       - "3000:3000"
     networks:
@@ -55,21 +55,21 @@ docker compose up -d --force-recreate docmost
 ### 3.1 Altyapı Sağlık Kontrolü
 
 ```bash
-curl -sk -o /dev/null -w "HTTP %{http_code}\n" https://docs.company.local/
-curl -sk https://docs.company.local/api/health
+curl -sk -o /dev/null -w "HTTP %{http_code}\n" https://ingwiki/
+curl -sk https://ingwiki/api/health
 ```
 **Beklenen:** İlki `200`; ikincisi `{"status":"ok",...,"database":{"status":"up"},"redis":{"status":"up"}}`.
 
 ### 3.2 LDAP ile Giriş (FR-1, FR-2, FR-3)
 
 ```bash
-curl -sk -X POST https://docs.company.local/api/auth/ldap-login \
+curl -sk -X POST https://ingwiki/api/auth/ldap-login \
   -H 'Content-Type: application/json' -c /tmp/faruk.txt \
   -d '{"username":"faruk","password":"faruk123"}' -o /dev/null -w 'HTTP %{http_code}\n'
-curl -sk -X POST https://docs.company.local/api/auth/ldap-login \
+curl -sk -X POST https://ingwiki/api/auth/ldap-login \
   -H 'Content-Type: application/json' -c /tmp/ali.txt \
   -d '{"username":"ali","password":"ali123"}' -o /dev/null -w 'HTTP %{http_code}\n'
-curl -sk -X POST https://docs.company.local/api/auth/ldap-login \
+curl -sk -X POST https://ingwiki/api/auth/ldap-login \
   -H 'Content-Type: application/json' -c /tmp/ayse.txt \
   -d '{"username":"ayse","password":"ayse123"}' -o /dev/null -w 'HTTP %{http_code}\n'
 ```
@@ -78,9 +78,9 @@ curl -sk -X POST https://docs.company.local/api/auth/ldap-login \
 ### 3.3 Olumsuz Senaryolar (FR-4)
 
 ```bash
-curl -sk -X POST https://docs.company.local/api/auth/ldap-login -H 'Content-Type: application/json' \
+curl -sk -X POST https://ingwiki/api/auth/ldap-login -H 'Content-Type: application/json' \
   -d '{"username":"faruk","password":"wrong"}' -o /dev/null -w 'HTTP %{http_code}\n'
-curl -sk -X POST https://docs.company.local/api/auth/ldap-login -H 'Content-Type: application/json' \
+curl -sk -X POST https://ingwiki/api/auth/ldap-login -H 'Content-Type: application/json' \
   -d '{"username":"nobody","password":"x"}' -o /dev/null -w 'HTTP %{http_code}\n'
 ```
 **Beklenen:** İkisi de `401`, farklı bir hata mesajı/kod sızdırmaz (kullanıcı adı var/yok ayrımı yapılamaz).
@@ -90,13 +90,13 @@ curl -sk -X POST https://docs.company.local/api/auth/ldap-login -H 'Content-Type
 Daha önce oluşturulmuş `Finance Only Page` kaynağına `DOCMOST-FINANCE → VIEW` politikası tanımlıdır (bkz. 03, §5.3). `PAGE_ID` değeri ortam başına sabittir; her Docker volume sıfırlandığında (ör. compose proje adı değiştiğinde) sayfa+politika yeniden oluşturulmalı ve buradaki değer güncellenmelidir — en güncel değer: `01a106ba-f322-7e6f-9e83-3cdb8c4c6c39` (bkz. §4 son satır).
 
 ```bash
-PAGE_ID=01a10677-7764-7750-8c7a-0f942c3c8afa
+PAGE_ID=01a106ba-f322-7e6f-9e83-3cdb8c4c6c39
 
-curl -sk -X POST https://docs.company.local/api/pages/info -H 'Content-Type: application/json' \
+curl -sk -X POST https://ingwiki/api/pages/info -H 'Content-Type: application/json' \
   -b /tmp/faruk.txt -d "{\"pageId\":\"$PAGE_ID\"}" -o /dev/null -w 'faruk  -> HTTP %{http_code}\n'
-curl -sk -X POST https://docs.company.local/api/pages/info -H 'Content-Type: application/json' \
+curl -sk -X POST https://ingwiki/api/pages/info -H 'Content-Type: application/json' \
   -b /tmp/ali.txt -d "{\"pageId\":\"$PAGE_ID\"}" -o /dev/null -w 'ali    -> HTTP %{http_code}\n'
-curl -sk -X POST https://docs.company.local/api/pages/info -H 'Content-Type: application/json' \
+curl -sk -X POST https://ingwiki/api/pages/info -H 'Content-Type: application/json' \
   -b /tmp/ayse.txt -d "{\"pageId\":\"$PAGE_ID\"}" -o /dev/null -w 'ayse   -> HTTP %{http_code}\n'
 ```
 **Beklenen:** `faruk` (DOCMOST-ADMIN bypass) → `200`; `ali` (DOCMOST-HR, eşleşmiyor) → `403`; `ayse` (DOCMOST-FINANCE, eşleşiyor) → `200`.
@@ -105,7 +105,7 @@ curl -sk -X POST https://docs.company.local/api/pages/info -H 'Content-Type: app
 
 Headless browser aracı ile (bkz. §2'deki shim aktifken):
 
-1. `http://docs.company.local:3000/login` adresini aç.
+1. `http://ingwiki:3000/login` adresini aç.
 2. Workspace'in yerel (LDAP dışı) admin hesabıyla giriş yap (`email`/`password` alanlarına yaz, "Sign In" tıkla).
 3. `/home`'a yönlendiğini ve sayfanın gerçek Docmost arayüzünü render ettiğini doğrula (ekran görüntüsü).
 4. Kenar çubuğundan `Finance Only Page`'e tıkla.
@@ -120,6 +120,8 @@ Bu adım, backend yetkilendirmesinin yalnızca API seviyesinde değil, **gerçek
 | İlk uçtan uca doğrulama (authz'nin ilk `docker compose up` sonrası canlı testi) | ✅ 200 | ✅ 200/200/200 | ✅ 401/401 | ✅ 200/403/200 | ✅ "Page not found" ekranı doğru | B3, B4, B5 hataları bu çalıştırmada bulunup düzeltildi (bkz. 03 §9) |
 | Bu doküman oluşturulurken yapılan **tekrar** çalıştırma (authz imajı güncel koddan yeniden build edilip yeniden başlatıldıktan sonra) | ✅ `HTTP 200` + `{"status":"ok"}` | ✅ `200`/`200`/`200` | ✅ `401`/`401` | ✅ faruk `200`, ali `403`, ayse `200` | ✅ Aynı sayfaya tekrar girişte yine "Page not found" ekranı (ekran görüntüsüyle doğrulandı) | Regresyon yok; `docker-compose.override.yml` test sonrası kaldırılıp TLS/nginx yoluna (`https://docs.company.local` → `200`) geri dönüldü |
 | Repo yeniden yapılandırması sonrası çalıştırma: önce her şey `docmost/ingwiki/`e taşındı, sonra `docmost/docmost` iç içeliği düzleştirilip tek `docmost/` (git kökü) haline getirildi (`git rev-parse --show-toplevel` → `/home/onder/dev/docmost` doğrulandı, `git log`/`git status` sağlam) | ✅ `HTTP 200` + `{"status":"ok"}` | ✅ `200`/`200`/`200` | — (önceki çalıştırmalarda zaten doğrulandı, tekrar edilmedi) | ✅ Compose proje adı (`ingwiki`) değişmediği için eski test sayfası/politika farklı bir Docker volume'da kalmıştı; yeni sayfa+politika oluşturulup matris baştan doğrulandı: faruk `200`, ali `403`, ayse `200` | — (bu çalıştırmada tekrar edilmedi) | `docker-compose.yml` içindeki `context: ..` yol değişikliği gerektirmedi (ingwiki hâlâ repo kökünün bir alt seviyesinde); yalnızca bu dokümandaki ve 03 §11'deki mutlak `cd` yolları `docmost/docmost/ingwiki` → `docmost/ingwiki` olarak düzeltildi |
+| `ingwiki-v1.0` etiketi sonrası, JUnit + e2e script'in birlikte tam çalıştırılması (kullanıcı talebiyle: önce `mvn test`, sonra bu dosyadaki §3 senaryoları) | ✅ `HTTP 200` + `{"status":"ok"}` | ✅ `200`/`200`/`200` | ✅ `401`/`401` | ✅ faruk `200`, ali `403`, ayse `200` (`PAGE_ID=01a106ba-f322-7e6f-9e83-3cdb8c4c6c39`) | ✅ Yerel admin ile giriş yapılıp `Finance Only Page`'e tıklandı, yine "Page not found / you may not have access" ekranı (ekran görüntüsüyle doğrulandı) | `authz`: `mvn test` → 30/30 geçti, 0 hata. Regresyon yok; shim sonrası TLS/nginx yoluna geri dönüldü (`https://ingwiki` → `200`) |
+| DNS/hosts kaydı `docs.company.local`'dan **`ingwiki`**'ye değiştirildi: `nginx/nginx.conf` (`server_name`), `docker-compose.yml` (`APP_URL`), `certs/*.pem` (CN/SAN yeniden üretildi), bu dosya ve 03 §11 güncellendi | ✅ `HTTP 200` + `{"status":"ok"}` (`https://ingwiki/`) | ✅ faruk `200` | — (bu çalıştırmada tekrar edilmedi) | — (bu çalıştırmada tekrar edilmedi) | — (bu çalıştırmada tekrar edilmedi) | Yalnızca `nginx` ve `docmost` container'ları `--force-recreate` ile yeniden başlatıldı; `authz`/Postgres/Redis/LDAP etkilenmedi |
 
 ## 5. Bu Script'i Güncel Tutma Kuralı
 

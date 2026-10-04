@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
 
     environment:
-      APP_URL: https://docs.company.local
+      APP_URL: https://ingwiki
       DATABASE_URL: postgresql://docmost:${DOCMOST_DB_PASSWORD}@docmost-postgres:5432/docmost
       REDIS_URL: redis://redis:6379
       APP_SECRET: ${DOCMOST_APP_SECRET}
