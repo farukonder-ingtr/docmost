@@ -32,7 +32,7 @@ type FormValues = z.infer<typeof formSchema>;
 
 export function LoginForm() {
   const { t } = useTranslation();
-  const { signIn, ldapSignIn, isLoading } = useAuth();
+  const { signIn, isLoading } = useAuth();
   useRedirectIfAuthenticated();
   const {
     data,
@@ -56,31 +56,13 @@ export function LoginForm() {
     }
   }
 
+  // Tries LDAP then falls back to the local password store (see useAuth).
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const { hasErrors, errors } = form.validate();
     if (hasErrors) {
       handleValidationFailure(errors);
-      return;
-    }
-
-    // Which of the two submit buttons was pressed decides email+password vs. LDAP username+password.
-    const submitter = (event.nativeEvent as SubmitEvent)
-      .submitter as HTMLButtonElement | null;
-
-    if (submitter?.value === "ldap") {
-      await ldapSignIn({
-        username: form.values.email,
-        password: form.values.password,
-      });
-      return;
-    }
-
-    const emailCheck = z.email().safeParse(form.values.email);
-    if (!emailCheck.success) {
-      form.setFieldError("email", t("Enter a valid email"));
-      document.getElementById("email")?.focus();
       return;
     }
 
@@ -144,27 +126,8 @@ export function LoginForm() {
                 </Anchor>
               </Group>
 
-              <Button
-                type="submit"
-                name="intent"
-                value="password"
-                fullWidth
-                mt="md"
-                loading={isLoading}
-              >
+              <Button type="submit" fullWidth mt="md" loading={isLoading}>
                 {t("Sign In")}
-              </Button>
-
-              <Button
-                type="submit"
-                name="intent"
-                value="ldap"
-                variant="outline"
-                fullWidth
-                mt="sm"
-                loading={isLoading}
-              >
-                {t("Sign in with company account (LDAP)")}
               </Button>
             </form>
           )}

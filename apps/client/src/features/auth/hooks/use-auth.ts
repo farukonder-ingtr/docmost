@@ -13,7 +13,6 @@ import { useAtom } from "jotai";
 import { currentUserAtom } from "@/features/user/atoms/current-user-atom";
 import {
   IForgotPassword,
-  ILdapLogin,
   ILogin,
   IPasswordReset,
   ISetupWorkspace,
@@ -37,14 +36,12 @@ export default function useAuth() {
   const navigate = useNavigate();
   const [, setCurrentUser] = useAtom(currentUserAtom);
 
-  const handleSignIn = async (data: ILogin) => {
-    setIsLoading(true);
-
+  // Local password-store attempt; returns true once handled (success or a
+  // redirect like email-verification), false if the caller should fall back.
+  const attemptLocalSignIn = async (data: ILogin): Promise<boolean> => {
     try {
       const response = await login(data);
-      setIsLoading(false);
 
-      // Check if MFA is required
       if (response?.userHasMfa) {
         navigate(APP_ROUTE.AUTH.MFA_CHALLENGE + window.location.search);
       } else if (response?.requiresMfaSetup) {
@@ -52,36 +49,44 @@ export default function useAuth() {
       } else {
         navigate(getPostLoginRedirect());
       }
+      return true;
     } catch (err) {
-      setIsLoading(false);
-
       const message = err.response?.data?.message;
       if (isCloud() && message?.includes("verify your email")) {
         const sig = err.response?.data?.emailSignature;
         navigate(
           `${APP_ROUTE.AUTH.VERIFY_EMAIL}?email=${encodeURIComponent(data.email)}${sig ? `&sig=${sig}` : ""}`,
         );
-        return;
+        return true;
       }
-
-      notifications.show({
-        message,
-        color: "red",
-      });
+      return false;
     }
   };
 
-  const handleLdapSignIn = async (data: ILdapLogin) => {
+  /**
+   * Single login form: tries LDAP first (the entered value doubles as the
+   * LDAP username), then falls back to the local password store. Only a
+   * generic failure is ever shown — never which of the two attempts failed,
+   * to avoid leaking whether an LDAP or local account exists for the input.
+   */
+  const handleCombinedSignIn = async (data: ILogin) => {
     setIsLoading(true);
 
     try {
-      await ldapLogin(data);
+      await ldapLogin({ username: data.email, password: data.password });
       setIsLoading(false);
       navigate(getPostLoginRedirect());
-    } catch (err) {
-      setIsLoading(false);
+      return;
+    } catch {
+      // fall through to local password login
+    }
+
+    const handled = await attemptLocalSignIn(data);
+    setIsLoading(false);
+
+    if (!handled) {
       notifications.show({
-        message: err.response?.data?.message || t("Invalid LDAP credentials"),
+        message: t("Login failed"),
         color: "red",
       });
     }
@@ -224,8 +229,7 @@ export default function useAuth() {
   };
 
   return {
-    signIn: handleSignIn,
-    ldapSignIn: handleLdapSignIn,
+    signIn: handleCombinedSignIn,
     invitationSignup: handleInvitationSignUp,
     setupWorkspace: handleSetupWorkspace,
     forgotPassword: handleForgotPassword,
