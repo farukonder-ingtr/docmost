@@ -27,6 +27,7 @@ export interface IUser {
   notificationCommentCreated: boolean; // used for update
   notificationCommentResolved: boolean; // used for update
   hasGeneratedPassword?: boolean;
+  authSource: "local" | "ldap";
 }
 
 export interface ICurrentUser {

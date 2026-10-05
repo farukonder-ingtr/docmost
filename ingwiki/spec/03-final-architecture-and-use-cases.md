@@ -79,6 +79,7 @@ Frontend tarafında bu sıralama tek bir `useAuth().signIn()` çağrısı içind
 - `users.auth_source` (`'local' | 'ldap'`, varsayılan `'local'`) ve nullable `users.password` kolonları bu ayrımı tutar.
 - `AuthService.login()` ve `AuthService.changePassword()`, `user.password` `NULL` ise `bcrypt.compare`'i hiç çağırmadan genel bir hatayla (`"Email or password does not match"` / `"Password change is not available for LDAP/SSO accounts"`) erken çıkar — null hash ile karşılaştırma denemesi bir sunucu hatasına yol açmaz.
 - LDAP girişi ile yerel giriş **aynı** `sessionService.createSessionAndToken(user)` çağrısını kullanır; LDAP ile girilen bir oturum, sonraki tüm isteklerde yerel girişle birebir aynı davranır.
+- `/settings/account/profile` sayfasında, Email alanının hemen üstünde bir **"Account type"** satırı gösterilir (`Local` / `LDAP`, `currentUser.user.authSource` alanından); `authSource` `ldap` ise "Password / Change password" bölümü hiç render edilmez (LDAP kullanıcısının zaten `NULL` bir Docmost parolası vardır, değiştirilecek bir şey yoktur).
 
 ## 5. LDAP Grubuna Göre Otomatik Space Üyeliği
 
