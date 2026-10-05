@@ -60,12 +60,10 @@ export class PageAccessService {
       throw new ForbiddenException();
     }
 
-    const localCanEdit = hasAnyRestriction
-      ? canEdit
-      : ability.can(SpaceCaslAction.Edit, SpaceCaslSubject.Page);
-
     return {
-      canEdit: localCanEdit,
+      canEdit: hasAnyRestriction
+        ? canEdit
+        : ability.can(SpaceCaslAction.Edit, SpaceCaslSubject.Page),
       hasRestriction: hasAnyRestriction,
     };
   }
